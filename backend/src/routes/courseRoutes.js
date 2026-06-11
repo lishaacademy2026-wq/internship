@@ -18,6 +18,7 @@ router.get("/", optionalAuth, getCourses);
 router.get("/:id", optionalAuth, getCourseById);
 
 router.use(protect);
+router.get("/my", authorize("instructor"), getCourses);
 router.post("/", authorize("instructor"), createCourse);
 router.put("/:id", authorize("instructor", "admin"), updateCourse);
 router.delete("/:id", authorize("instructor", "admin"), deleteCourse);
