@@ -1,18 +1,25 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/DashboardLayout";
 import api from "../../api/client";
+import Toast from "../../components/Toast";
 
 const InstructorAssignments = () => {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [selectedAssignment, setSelectedAssignment] = useState(null);
-  const [form, setForm] = useState({ title: "", description: "", deadline: "", maxScore: 100, allowResubmit: true });
+  const [form, setForm] = useState({ 
+    title: "", 
+    description: "", 
+    deadline: "", 
+    maxScore: 100, 
+    allowResubmit: true 
+  });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [viewingSubmissions, setViewingSubmissions] = useState(null);
   const [gradingSubmission, setGradingSubmission] = useState(null);
   const [gradeForm, setGradeForm] = useState({ score: 0, feedback: "" });
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     loadAssignments();
@@ -21,10 +28,11 @@ const InstructorAssignments = () => {
   const loadAssignments = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/api/assignments/my");
+      const { data } = await api.get("/assignments/my");
       setAssignments(data.assignments || []);
     } catch (err) {
       console.error("Failed to load assignments", err);
+      setToast({ type: "error", message: "Failed to load assignments" });
     } finally {
       setLoading(false);
     }
@@ -33,17 +41,20 @@ const InstructorAssignments = () => {
   const handleCreateSubmit = async () => {
     setFormError("");
     if (!form.title || !form.description || !form.deadline) {
-      setFormError("All fields are required.");
+      setFormError("Title, description, and deadline are required.");
       return;
     }
     setSaving(true);
     try {
-      await api.post("/api/assignments", form);
+      await api.post("/assignments", form);
       setShowCreateForm(false);
       setForm({ title: "", description: "", deadline: "", maxScore: 100, allowResubmit: true });
+      setToast({ type: "success", message: "Assignment created successfully" });
       loadAssignments();
     } catch (err) {
-      setFormError(err?.response?.data?.message || "Failed to create assignment.");
+      const errorMsg = err?.response?.data?.message || "Failed to create assignment.";
+      setFormError(errorMsg);
+      setToast({ type: "error", message: errorMsg });
     } finally {
       setSaving(false);
     }
@@ -52,16 +63,18 @@ const InstructorAssignments = () => {
   const handleGradeSubmit = async () => {
     setSaving(true);
     try {
-      await api.patch(`/api/assignments/${viewingSubmissions._id}/grade`, {
-        studentId: gradingSubmission.student,
+      const submissionId = gradingSubmission._id;
+      await api.patch(`/assignments/${viewingSubmissions._id}/submissions/${submissionId}/grade`, {
         score: parseInt(gradeForm.score),
         feedback: gradeForm.feedback,
       });
       setGradingSubmission(null);
       setGradeForm({ score: 0, feedback: "" });
+      setToast({ type: "success", message: "Grade saved successfully" });
       loadAssignments();
     } catch (err) {
-      alert("Failed to save grade.");
+      const errorMsg = err?.response?.data?.message || "Failed to save grade.";
+      setToast({ type: "error", message: errorMsg });
     } finally {
       setSaving(false);
     }
@@ -69,77 +82,87 @@ const InstructorAssignments = () => {
 
   return (
     <DashboardLayout title="Assignments">
-      <div className="instructor-header">
-        <div>
-          <h2>Assignment Management</h2>
-          <p>Create and grade assignments for your courses</p>
-        </div>
-        <button
-          type="button"
-          className="btn btn--primary btn--lg"
-          onClick={() => setShowCreateForm(true)}
-        >
-          + Create Assignment
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="loading-state">
-          <p>Loading assignments...</p>
-        </div>
-      ) : assignments.length === 0 ? (
-        <div className="empty-state">
-          <h3>No assignments yet</h3>
-          <p>Create your first assignment to get started.</p>
-        </div>
-      ) : (
-        <div className="assignments-list">
-          {assignments.map((assignment) => {
-            const totalSubmissions = assignment.submissions?.length || 0;
-            const gradedSubmissions = assignment.submissions?.filter((s) => s.status === "graded").length || 0;
-
-            return (
-              <div key={assignment._id} className="assignment-item">
-                <div className="assignment-item__header">
-                  <h3>{assignment.title}</h3>
-                  <div className="assignment-stats">
-                    <span className="stat-badge">
-                      {gradedSubmissions}/{totalSubmissions} graded
-                    </span>
-                  </div>
-                </div>
-
-                <p className="assignment-item__description">{assignment.description}</p>
-
-                <div className="assignment-item__meta">
-                  <div className="meta-item">
-                    <span className="meta-label">Deadline:</span>
-                    <span className="meta-value">{new Date(assignment.deadline).toLocaleDateString()}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Max Score:</span>
-                    <span className="meta-value">{assignment.maxScore}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Resubmit Allowed:</span>
-                    <span className="meta-value">{assignment.allowResubmit ? "Yes" : "No"}</span>
-                  </div>
-                </div>
-
-                <div className="assignment-item__actions">
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm"
-                    onClick={() => setViewingSubmissions(assignment)}
-                  >
-                    View Submissions ({totalSubmissions})
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {toast && (
+        <Toast
+          type={toast.type}
+          message={toast.message}
+          onClose={() => setToast(null)}
+        />
       )}
+
+      <div className="instructor-page-container">
+        <div className="instructor-header">
+          <div className="instructor-header__content">
+            <h2>Assignment Management</h2>
+            <p>Create and grade assignments for your courses</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary btn--lg"
+            onClick={() => setShowCreateForm(true)}
+          >
+            + Create Assignment
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="loading-state">
+            <p>Loading assignments...</p>
+          </div>
+        ) : assignments.length === 0 ? (
+          <div className="empty-state">
+            <h3>No assignments yet</h3>
+            <p>Create your first assignment to get started.</p>
+          </div>
+        ) : (
+          <div className="assignments-list">
+            {assignments.map((assignment) => {
+              const totalSubmissions = assignment.submissions?.length || 0;
+              const gradedSubmissions = assignment.submissions?.filter((s) => s.status === "graded").length || 0;
+
+              return (
+                <div key={assignment._id} className="assignment-item">
+                  <div className="assignment-item__header">
+                    <h3>{assignment.title}</h3>
+                    <div className="assignment-stats">
+                      <span className="stat-badge">
+                        {gradedSubmissions}/{totalSubmissions} graded
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="assignment-item__description">{assignment.description}</p>
+
+                  <div className="assignment-item__meta">
+                    <div className="meta-item">
+                      <span className="meta-label">Deadline:</span>
+                      <span className="meta-value">{new Date(assignment.deadline).toLocaleDateString()}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Max Score:</span>
+                      <span className="meta-value">{assignment.maxScore}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Resubmit:</span>
+                      <span className="meta-value">{assignment.allowResubmit ? "Yes" : "No"}</span>
+                    </div>
+                  </div>
+
+                  <div className="assignment-item__actions">
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => setViewingSubmissions(assignment)}
+                    >
+                      View Submissions ({totalSubmissions})
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Create Assignment Modal */}
       {showCreateForm && (
@@ -157,7 +180,7 @@ const InstructorAssignments = () => {
 
             <div className="modal-body">
               <div className="form-field">
-                <label htmlFor="title">Assignment Title *</label>
+                <label htmlFor="title" className="form-field__label">Assignment Title *</label>
                 <input
                   id="title"
                   type="text"
@@ -169,7 +192,7 @@ const InstructorAssignments = () => {
               </div>
 
               <div className="form-field">
-                <label htmlFor="description">Description *</label>
+                <label htmlFor="description" className="form-field__label">Description *</label>
                 <textarea
                   id="description"
                   className="form-textarea"
@@ -182,7 +205,7 @@ const InstructorAssignments = () => {
 
               <div className="form-row">
                 <div className="form-field">
-                  <label htmlFor="deadline">Deadline *</label>
+                  <label htmlFor="deadline" className="form-field__label">Deadline *</label>
                   <input
                     id="deadline"
                     type="datetime-local"
@@ -192,7 +215,7 @@ const InstructorAssignments = () => {
                   />
                 </div>
                 <div className="form-field">
-                  <label htmlFor="maxScore">Max Score</label>
+                  <label htmlFor="maxScore" className="form-field__label">Max Score</label>
                   <input
                     id="maxScore"
                     type="number"
@@ -204,7 +227,7 @@ const InstructorAssignments = () => {
                 </div>
               </div>
 
-              <label className="checkbox-label" style={{ marginBottom: "16px" }}>
+              <label className="checkbox-label" style={{ marginBottom: "20px" }}>
                 <input
                   type="checkbox"
                   checked={form.allowResubmit}
@@ -327,30 +350,30 @@ const InstructorAssignments = () => {
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-labelledby="grade-title"
-            style={{ maxWidth: "500px", width: "100%" }}
+            style={{ maxWidth: "520px", width: "100%" }}
           >
             <div className="modal-header">
               <h3 id="grade-title">Grade Submission</h3>
-              <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginTop: "4px" }}>
+              <p style={{ color: "var(--text-secondary)", fontSize: "13px", margin: 0, marginTop: "4px" }}>
                 {gradingSubmission.studentName}
               </p>
             </div>
 
             <div className="modal-body">
-              <div className="submission-content" style={{ marginBottom: "20px", padding: "12px", backgroundColor: "var(--bg-elevated)", borderRadius: "8px" }}>
-                <h4 style={{ marginBottom: "8px" }}>Submission Content:</h4>
-                <p style={{ fontSize: "14px", color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
+              <div className="submission-content" style={{ marginBottom: "20px", padding: "14px", backgroundColor: "var(--bg-elevated)", borderRadius: "8px" }}>
+                <h4 style={{ marginBottom: "10px", fontSize: "14px" }}>Submission Content:</h4>
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)", whiteSpace: "pre-wrap", margin: 0 }}>
                   {gradingSubmission.content}
                 </p>
                 {gradingSubmission.fileUrl && (
-                  <a href={gradingSubmission.fileUrl} target="_blank" rel="noreferrer" className="link-green">
+                  <a href={gradingSubmission.fileUrl} target="_blank" rel="noreferrer" className="link-green" style={{ display: "block", marginTop: "10px" }}>
                     📎 View Attached File
                   </a>
                 )}
               </div>
 
               <div className="form-field">
-                <label htmlFor="score">Score (0 - {viewingSubmissions.maxScore})</label>
+                <label htmlFor="score" className="form-field__label">Score (0 - {viewingSubmissions.maxScore})</label>
                 <input
                   id="score"
                   type="number"
@@ -363,7 +386,7 @@ const InstructorAssignments = () => {
               </div>
 
               <div className="form-field">
-                <label htmlFor="feedback">Feedback</label>
+                <label htmlFor="feedback" className="form-field__label">Feedback</label>
                 <textarea
                   id="feedback"
                   className="form-textarea"

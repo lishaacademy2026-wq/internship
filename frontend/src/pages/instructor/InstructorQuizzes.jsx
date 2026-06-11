@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/DashboardLayout";
 import api from "../../api/client";
+import Toast from "../../components/Toast";
 
 const InstructorQuizzes = () => {
   const [quizzes, setQuizzes] = useState([]);
@@ -16,6 +17,7 @@ const InstructorQuizzes = () => {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [viewingSubmissions, setViewingSubmissions] = useState(null);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     loadQuizzes();
@@ -24,10 +26,11 @@ const InstructorQuizzes = () => {
   const loadQuizzes = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/api/quizzes/my");
+      const { data } = await api.get("/quizzes/my");
       setQuizzes(data.quizzes || []);
     } catch (err) {
       console.error("Failed to load quizzes", err);
+      setToast({ type: "error", message: "Failed to load quizzes" });
     } finally {
       setLoading(false);
     }
@@ -74,7 +77,7 @@ const InstructorQuizzes = () => {
     }
     setSaving(true);
     try {
-      await api.post("/api/quizzes", form);
+      await api.post("/quizzes", form);
       setShowCreateForm(false);
       setForm({
         title: "",
@@ -83,9 +86,12 @@ const InstructorQuizzes = () => {
         passingScore: 70,
         maxAttempts: 1,
       });
+      setToast({ type: "success", message: "Quiz created successfully" });
       loadQuizzes();
     } catch (err) {
-      setFormError(err?.response?.data?.message || "Failed to create quiz.");
+      const errorMsg = err?.response?.data?.message || "Failed to create quiz.";
+      setFormError(errorMsg);
+      setToast({ type: "error", message: errorMsg });
     } finally {
       setSaving(false);
     }
@@ -93,78 +99,88 @@ const InstructorQuizzes = () => {
 
   return (
     <DashboardLayout title="Quizzes">
-      <div className="instructor-header">
-        <div>
-          <h2>Quiz Management</h2>
-          <p>Create and manage quizzes for your courses</p>
-        </div>
-        <button
-          type="button"
-          className="btn btn--primary btn--lg"
-          onClick={() => setShowCreateForm(true)}
-        >
-          + Create Quiz
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="loading-state">
-          <p>Loading quizzes...</p>
-        </div>
-      ) : quizzes.length === 0 ? (
-        <div className="empty-state">
-          <h3>No quizzes yet</h3>
-          <p>Create your first quiz to get started.</p>
-        </div>
-      ) : (
-        <div className="quizzes-list">
-          {quizzes.map((quiz) => {
-            const totalSubmissions = quiz.submissions?.length || 0;
-            const passedCount = quiz.submissions?.filter((s) => s.passed).length || 0;
-
-            return (
-              <div key={quiz._id} className="quiz-item">
-                <div className="quiz-item__header">
-                  <h3>{quiz.title}</h3>
-                  <div className="quiz-stats">
-                    <span className="stat-badge">{quiz.questions?.length || 0} Questions</span>
-                    <span className="stat-badge">{totalSubmissions} Submissions</span>
-                  </div>
-                </div>
-
-                <p className="quiz-item__description">{quiz.description}</p>
-
-                <div className="quiz-item__meta">
-                  <div className="meta-item">
-                    <span className="meta-label">Passing Score:</span>
-                    <span className="meta-value">{quiz.passingScore}%</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Max Attempts:</span>
-                    <span className="meta-value">{quiz.maxAttempts === 1 ? "No Retakes" : quiz.maxAttempts}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Pass Rate:</span>
-                    <span className="meta-value">
-                      {totalSubmissions === 0 ? "—" : Math.round((passedCount / totalSubmissions) * 100) + "%"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="quiz-item__actions">
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm"
-                    onClick={() => setViewingSubmissions(quiz)}
-                  >
-                    View Submissions ({totalSubmissions})
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {toast && (
+        <Toast
+          type={toast.type}
+          message={toast.message}
+          onClose={() => setToast(null)}
+        />
       )}
+
+      <div className="instructor-page-container">
+        <div className="instructor-header">
+          <div className="instructor-header__content">
+            <h2>Quiz Management</h2>
+            <p>Create and manage quizzes for your courses</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary btn--lg"
+            onClick={() => setShowCreateForm(true)}
+          >
+            + Create Quiz
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="loading-state">
+            <p>Loading quizzes...</p>
+          </div>
+        ) : quizzes.length === 0 ? (
+          <div className="empty-state">
+            <h3>No quizzes yet</h3>
+            <p>Create your first quiz to get started.</p>
+          </div>
+        ) : (
+          <div className="quizzes-list">
+            {quizzes.map((quiz) => {
+              const totalSubmissions = quiz.submissions?.length || 0;
+              const passedCount = quiz.submissions?.filter((s) => s.passed).length || 0;
+
+              return (
+                <div key={quiz._id} className="quiz-item">
+                  <div className="quiz-item__header">
+                    <h3>{quiz.title}</h3>
+                    <div className="quiz-stats">
+                      <span className="stat-badge">{quiz.questions?.length || 0} Questions</span>
+                      <span className="stat-badge">{totalSubmissions} Submissions</span>
+                    </div>
+                  </div>
+
+                  <p className="quiz-item__description">{quiz.description}</p>
+
+                  <div className="quiz-item__meta">
+                    <div className="meta-item">
+                      <span className="meta-label">Passing Score:</span>
+                      <span className="meta-value">{quiz.passingScore}%</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Max Attempts:</span>
+                      <span className="meta-value">{quiz.maxAttempts === 1 ? "No Retakes" : quiz.maxAttempts}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Pass Rate:</span>
+                      <span className="meta-value">
+                        {totalSubmissions === 0 ? "—" : Math.round((passedCount / totalSubmissions) * 100) + "%"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="quiz-item__actions">
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => setViewingSubmissions(quiz)}
+                    >
+                      View Submissions ({totalSubmissions})
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Create Quiz Modal */}
       {showCreateForm && (
@@ -182,7 +198,7 @@ const InstructorQuizzes = () => {
 
             <div className="modal-body">
               <div className="form-field">
-                <label htmlFor="quiz-title">Quiz Title *</label>
+                <label htmlFor="quiz-title" className="form-field__label">Quiz Title *</label>
                 <input
                   id="quiz-title"
                   type="text"
@@ -194,7 +210,7 @@ const InstructorQuizzes = () => {
               </div>
 
               <div className="form-field">
-                <label htmlFor="quiz-description">Description *</label>
+                <label htmlFor="quiz-description" className="form-field__label">Description *</label>
                 <textarea
                   id="quiz-description"
                   className="form-textarea"
@@ -207,7 +223,7 @@ const InstructorQuizzes = () => {
 
               <div className="form-row">
                 <div className="form-field">
-                  <label htmlFor="passing-score">Passing Score (%)</label>
+                  <label htmlFor="passing-score" className="form-field__label">Passing Score (%)</label>
                   <input
                     id="passing-score"
                     type="number"
@@ -219,7 +235,7 @@ const InstructorQuizzes = () => {
                   />
                 </div>
                 <div className="form-field">
-                  <label htmlFor="max-attempts">Max Attempts</label>
+                  <label htmlFor="max-attempts" className="form-field__label">Max Attempts</label>
                   <select
                     id="max-attempts"
                     className="form-input"
@@ -234,13 +250,13 @@ const InstructorQuizzes = () => {
                 </div>
               </div>
 
-              <div style={{ marginTop: "24px", borderTop: "1px solid var(--border-color)", paddingTop: "20px" }}>
-                <h4 style={{ marginBottom: "16px" }}>Questions *</h4>
+              <div style={{ marginTop: "28px", paddingTop: "20px", borderTop: "1px solid var(--border-color)" }}>
+                <h4 style={{ marginBottom: "16px", fontSize: "15px" }}>Questions *</h4>
 
                 {form.questions.map((question, qIndex) => (
-                  <div key={qIndex} className="quiz-question-editor" style={{ marginBottom: "20px", padding: "16px", backgroundColor: "var(--bg-elevated)", borderRadius: "8px" }}>
+                  <div key={qIndex} className="quiz-question-editor">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                      <h5>Question {qIndex + 1}</h5>
+                      <h5 style={{ margin: 0 }}>Question {qIndex + 1}</h5>
                       {form.questions.length > 1 && (
                         <button
                           type="button"
@@ -263,9 +279,9 @@ const InstructorQuizzes = () => {
                     </div>
 
                     <div style={{ marginTop: "12px" }}>
-                      <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", fontWeight: 500 }}>Options:</label>
+                      <label style={{ display: "block", marginBottom: "10px", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>Options:</label>
                       {question.options.map((option, oIndex) => (
-                        <div key={oIndex} style={{ display: "flex", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+                        <div key={oIndex} style={{ display: "flex", gap: "10px", marginBottom: "10px", alignItems: "center" }}>
                           <input
                             type="radio"
                             name={`correct-${qIndex}`}
@@ -282,7 +298,7 @@ const InstructorQuizzes = () => {
                             style={{ flex: 1 }}
                           />
                           {question.correctIndex === oIndex && (
-                            <span style={{ fontSize: "12px", color: "var(--green-600)", fontWeight: 500 }}>✓ Correct</span>
+                            <span style={{ fontSize: "11px", color: "var(--green-600)", fontWeight: 600, whiteSpace: "nowrap" }}>✓ Correct</span>
                           )}
                         </div>
                       ))}
@@ -294,13 +310,13 @@ const InstructorQuizzes = () => {
                   type="button"
                   className="btn btn--outline"
                   onClick={handleAddQuestion}
-                  style={{ width: "100%" }}
+                  style={{ width: "100%", marginTop: "20px" }}
                 >
                   + Add Question
                 </button>
               </div>
 
-              {formError && <div className="form-error" style={{ marginTop: "16px" }}>{formError}</div>}
+              {formError && <div className="form-error" style={{ marginTop: "20px" }}>{formError}</div>}
             </div>
 
             <div className="modal-footer">
