@@ -104,7 +104,8 @@ const getCourses = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("getCourses error:", error);
+    res.status(500).json({ success: false, message: error.message, stack: error.stack });
   }
 };
 
