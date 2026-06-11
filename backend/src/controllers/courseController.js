@@ -33,8 +33,14 @@ const getCourses = async (req, res) => {
     const { search, category, level, sort, status, instructor } = req.query;
     const filter = {};
 
-    if (status !== undefined) {
-      // Management dashboard request
+    // Check if this is an instructor requesting their own courses
+    const isInstructorMyRoute = req.user?.role === "instructor" && !status && !instructor;
+
+    if (isInstructorMyRoute) {
+      // /courses/my route - get instructor's courses regardless of status
+      filter.instructor = req.user._id;
+    } else if (status !== undefined) {
+      // Management dashboard request with explicit status
       if (req.user?.role === "instructor") {
         filter.instructor = req.user._id;
         if (status) filter.status = status;
@@ -42,7 +48,7 @@ const getCourses = async (req, res) => {
         if (status) filter.status = status;
       }
     } else {
-      // Public catalog request
+      // Public catalog request - only show published
       filter.status = "published";
     }
 
