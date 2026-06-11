@@ -1,11 +1,21 @@
 const Assignment = require("../models/Assignment");
+const Course = require("../models/Course");
 const User = require("../models/User");
+const Enrollment = require("../models/Enrollment");
 const { sendNotificationEmail } = require("../utils/email");
 
 // Get all assignments for a course (instructor view)
 const getAssignments = async (req, res) => {
   try {
     const { courseId } = req.params;
+    const instructorId = req.user._id;
+
+    // Verify instructor owns the course
+    const course = await Course.findById(courseId);
+    if (!course || course.instructor.toString() !== instructorId.toString()) {
+      return res.status(403).json({ message: "Not authorized to view these assignments" });
+    }
+
     const assignments = await Assignment.find({ course: courseId })
       .populate("instructor", "fullName email")
       .sort({ createdAt: -1 });
@@ -16,53 +26,53 @@ const getAssignments = async (req, res) => {
   }
 };
 
-// Get specific assignment with submissions
-const getAssignmentById = async (req, res) => {
+// Get instructor's courses with assignments
+const getMyAssignments = async (req, res) => {
   try {
-    const { id } = req.params;
-    const assignment = await Assignment.findById(id)
+    const instructorId = req.user._id;
+
+    const assignments = await Assignment.find({ instructor: instructorId })
+      .populate("course", "title")
       .populate("instructor", "fullName email")
-      .populate("submissions.student", "fullName email username");
+      .sort({ createdAt: -1 });
 
-    if (!assignment) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    res.json({ assignment });
+    res.json({ assignments });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// Get assignment for student (with only their submission)
-const getStudentAssignment = async (req, res) => {
+// Get assignments for student (only enrolled courses)
+const getStudentAssignments = async (req, res) => {
   try {
-    const { assignmentId } = req.params;
     const studentId = req.user._id;
 
-    const assignment = await Assignment.findById(assignmentId)
-      .populate("instructor", "fullName email");
+    // Get all courses student is enrolled in
+    const enrollments = await Enrollment.find({
+      student: studentId,
+      status: { $in: ["enrolled", "active", "completed"] },
+    }).populate("course");
 
-    if (!assignment) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
+    const courseIds = enrollments.map((e) => e.course._id);
 
-    // Find student's submission
-    const studentSubmission = assignment.submissions.find(
-      (sub) => sub.student.toString() === studentId.toString()
-    );
+    // Get all assignments for those courses
+    const assignments = await Assignment.find({ course: { $in: courseIds } })
+      .populate("course", "title")
+      .populate("instructor", "fullName email")
+      .sort({ createdAt: -1 });
 
-    res.json({
-      assignment: {
-        id: assignment._id,
-        title: assignment.title,
-        description: assignment.description,
-        deadline: assignment.deadline,
-        maxScore: assignment.maxScore,
-        instructor: assignment.instructor,
-        submission: studentSubmission || null,
-      },
+    // Add submission info for each assignment
+    const assignmentsWithSubmissions = assignments.map((assignment) => {
+      const submission = assignment.submissions.find(
+        (sub) => sub.student.toString() === studentId.toString()
+      );
+      return {
+        ...assignment.toObject(),
+        submissions: submission ? [submission] : [],
+      };
     });
+
+    res.json({ assignments: assignmentsWithSubmissions });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -78,6 +88,12 @@ const createAssignment = async (req, res) => {
       return res.status(400).json({ message: "Title and courseId are required" });
     }
 
+    // Verify instructor owns the course
+    const course = await Course.findById(courseId);
+    if (!course || course.instructor.toString() !== instructorId.toString()) {
+      return res.status(403).json({ message: "Not authorized to create assignment for this course" });
+    }
+
     const assignment = await Assignment.create({
       course: courseId,
       title,
@@ -89,6 +105,7 @@ const createAssignment = async (req, res) => {
     });
 
     const populatedAssignment = await assignment
+      .populate("course", "title")
       .populate("instructor", "fullName email")
       .execPopulate();
 
@@ -101,7 +118,7 @@ const createAssignment = async (req, res) => {
   }
 };
 
-// Update assignment (can be edited by instructor/admin even after creation)
+// Update assignment
 const updateAssignment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -176,6 +193,24 @@ const submitAssignment = async (req, res) => {
       return res.status(404).json({ message: "Assignment not found" });
     }
 
+    // Check if deadline has passed
+    if (assignment.deadline && new Date() > new Date(assignment.deadline)) {
+      return res.status(400).json({
+        message: `Assignment deadline has passed (${new Date(assignment.deadline).toLocaleString()}). Late submissions are not allowed.`,
+      });
+    }
+
+    // Check if student is enrolled in the course
+    const enrollment = await Enrollment.findOne({
+      student: studentId,
+      course: assignment.course,
+      status: { $in: ["enrolled", "active", "completed"] },
+    });
+
+    if (!enrollment) {
+      return res.status(403).json({ message: "You are not enrolled in this course" });
+    }
+
     // Check if student already submitted
     const existingSubmission = assignment.submissions.find(
       (sub) => sub.student.toString() === studentId.toString()
@@ -214,7 +249,7 @@ const submitAssignment = async (req, res) => {
       await sendNotificationEmail(
         instructor.email,
         "New Assignment Submission",
-        `${studentName} submitted an assignment: "${assignment.title}"`
+        `${studentName} submitted an assignment: "${assignment.title}" at ${new Date().toLocaleString()}`
       );
     }
 
@@ -297,6 +332,14 @@ const getSubmissions = async (req, res) => {
       return res.status(404).json({ message: "Assignment not found" });
     }
 
+    // Only instructor or admin can view submissions
+    if (
+      assignment.instructor.toString() !== req.user._id.toString() &&
+      req.user.role !== "admin"
+    ) {
+      return res.status(403).json({ message: "Not authorized to view these submissions" });
+    }
+
     res.json({
       submissions: assignment.submissions,
     });
@@ -321,6 +364,7 @@ const getMySubmissions = async (req, res) => {
         assignmentId: assignment._id,
         courseTitle: assignment.course?.title,
         title: assignment.title,
+        deadline: assignment.deadline,
         instructor: assignment.instructor,
         submission: assignment.submissions.find(
           (sub) => sub.student.toString() === studentId.toString()
@@ -336,8 +380,8 @@ const getMySubmissions = async (req, res) => {
 
 module.exports = {
   getAssignments,
-  getAssignmentById,
-  getStudentAssignment,
+  getMyAssignments,
+  getStudentAssignments,
   createAssignment,
   updateAssignment,
   deleteAssignment,

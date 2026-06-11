@@ -4,6 +4,8 @@ import api from "../../api/client";
 import Toast from "../../components/Toast";
 
 const InstructorAssignments = () => {
+  const [courses, setCourses] = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -22,13 +24,33 @@ const InstructorAssignments = () => {
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
-    loadAssignments();
+    loadCourses();
   }, []);
 
+  useEffect(() => {
+    if (selectedCourse) {
+      loadAssignments();
+    }
+  }, [selectedCourse]);
+
+  const loadCourses = async () => {
+    try {
+      const { data } = await api.get("/courses/my");
+      setCourses(data.courses || []);
+      if (data.courses?.length > 0) {
+        setSelectedCourse(data.courses[0]._id);
+      }
+    } catch (err) {
+      console.error("Failed to load courses", err);
+      setToast({ type: "error", message: "Failed to load your courses" });
+    }
+  };
+
   const loadAssignments = async () => {
+    if (!selectedCourse) return;
     setLoading(true);
     try {
-      const { data } = await api.get("/assignments/my");
+      const { data } = await api.get(`/assignments/course/${selectedCourse}`);
       setAssignments(data.assignments || []);
     } catch (err) {
       console.error("Failed to load assignments", err);
@@ -46,7 +68,10 @@ const InstructorAssignments = () => {
     }
     setSaving(true);
     try {
-      await api.post("/assignments", form);
+      await api.post("/assignments", {
+        ...form,
+        courseId: selectedCourse,
+      });
       setShowCreateForm(false);
       setForm({ title: "", description: "", deadline: "", maxScore: 100, allowResubmit: true });
       setToast({ type: "success", message: "Assignment created successfully" });
@@ -80,6 +105,8 @@ const InstructorAssignments = () => {
     }
   };
 
+  const currentCourse = courses.find(c => c._id === selectedCourse);
+
   return (
     <DashboardLayout title="Assignments">
       {toast && (
@@ -105,6 +132,25 @@ const InstructorAssignments = () => {
           </button>
         </div>
 
+        {/* Course Selector */}
+        <div style={{ marginBottom: "32px" }}>
+          <label style={{ display: "block", marginBottom: "12px", fontWeight: 600, fontSize: "14px" }}>
+            Select Course
+          </label>
+          <select
+            value={selectedCourse || ""}
+            onChange={(e) => setSelectedCourse(e.target.value)}
+            className="form-input"
+            style={{ maxWidth: "400px" }}
+          >
+            {courses.map((course) => (
+              <option key={course._id} value={course._id}>
+                {course.title}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {loading ? (
           <div className="loading-state">
             <p>Loading assignments...</p>
@@ -112,19 +158,21 @@ const InstructorAssignments = () => {
         ) : assignments.length === 0 ? (
           <div className="empty-state">
             <h3>No assignments yet</h3>
-            <p>Create your first assignment to get started.</p>
+            <p>Create your first assignment for "{currentCourse?.title}" to get started.</p>
           </div>
         ) : (
           <div className="assignments-list">
             {assignments.map((assignment) => {
               const totalSubmissions = assignment.submissions?.length || 0;
               const gradedSubmissions = assignment.submissions?.filter((s) => s.status === "graded").length || 0;
+              const isLate = new Date() > new Date(assignment.deadline);
 
               return (
                 <div key={assignment._id} className="assignment-item">
                   <div className="assignment-item__header">
                     <h3>{assignment.title}</h3>
                     <div className="assignment-stats">
+                      {isLate && <span className="stat-badge stat-badge--late">Deadline Passed</span>}
                       <span className="stat-badge">
                         {gradedSubmissions}/{totalSubmissions} graded
                       </span>
@@ -136,15 +184,15 @@ const InstructorAssignments = () => {
                   <div className="assignment-item__meta">
                     <div className="meta-item">
                       <span className="meta-label">Deadline:</span>
-                      <span className="meta-value">{new Date(assignment.deadline).toLocaleDateString()}</span>
+                      <span className="meta-value">{new Date(assignment.deadline).toLocaleString()}</span>
                     </div>
                     <div className="meta-item">
                       <span className="meta-label">Max Score:</span>
                       <span className="meta-value">{assignment.maxScore}</span>
                     </div>
                     <div className="meta-item">
-                      <span className="meta-label">Resubmit:</span>
-                      <span className="meta-value">{assignment.allowResubmit ? "Yes" : "No"}</span>
+                      <span className="meta-label">Submissions:</span>
+                      <span className="meta-value">{totalSubmissions}</span>
                     </div>
                   </div>
 
@@ -179,6 +227,12 @@ const InstructorAssignments = () => {
             </div>
 
             <div className="modal-body">
+              <div style={{ marginBottom: "16px", padding: "12px", backgroundColor: "var(--bg-elevated)", borderRadius: "8px" }}>
+                <p style={{ margin: 0, fontSize: "13px", fontWeight: 500 }}>
+                  Course: <strong>{currentCourse?.title}</strong>
+                </p>
+              </div>
+
               <div className="form-field">
                 <label htmlFor="title" className="form-field__label">Assignment Title *</label>
                 <input
@@ -268,7 +322,7 @@ const InstructorAssignments = () => {
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-labelledby="submissions-title"
-            style={{ maxWidth: "800px", width: "100%", maxHeight: "80vh", overflowY: "auto" }}
+            style={{ maxWidth: "900px", width: "100%", maxHeight: "80vh", overflowY: "auto" }}
           >
             <div className="modal-header">
               <h3 id="submissions-title">Submissions: {viewingSubmissions.title}</h3>
@@ -283,47 +337,62 @@ const InstructorAssignments = () => {
                 <table className="submissions-table">
                   <thead>
                     <tr>
-                      <th>Student</th>
-                      <th>Submitted</th>
+                      <th>Student Name</th>
+                      <th>Email</th>
+                      <th>Submitted At</th>
                       <th>Status</th>
                       <th>Score</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {viewingSubmissions.submissions?.map((submission) => (
-                      <tr key={submission._id}>
-                        <td>
-                          <strong>{submission.studentName}</strong>
-                          <br />
-                          <small style={{ color: "var(--text-muted)" }}>{submission.studentEmail}</small>
-                        </td>
-                        <td>{new Date(submission.submittedAt).toLocaleDateString()}</td>
-                        <td>
-                          <span
-                            className={`status-badge ${submission.status === "graded" ? "status-badge--graded" : "status-badge--pending"}`}
-                          >
-                            {submission.status === "graded" ? "Graded" : "Pending"}
-                          </span>
-                        </td>
-                        <td>
-                          {submission.status === "graded" ? (
-                            <strong>{submission.score}/{viewingSubmissions.maxScore}</strong>
-                          ) : (
-                            <span style={{ color: "var(--text-muted)" }}>—</span>
-                          )}
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="btn btn--outline btn--sm"
-                            onClick={() => setGradingSubmission(submission)}
-                          >
-                            {submission.status === "graded" ? "Edit" : "Grade"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {viewingSubmissions.submissions?.map((submission) => {
+                      const isLateSubmission = new Date(submission.submittedAt) > new Date(viewingSubmissions.deadline);
+                      return (
+                        <tr key={submission._id}>
+                          <td>
+                            <strong>{submission.studentName}</strong>
+                          </td>
+                          <td>{submission.studentEmail}</td>
+                          <td>
+                            <div>
+                              <div>{new Date(submission.submittedAt).toLocaleDateString()}</div>
+                              <small style={{ color: "var(--text-muted)", fontSize: "11px" }}>
+                                {new Date(submission.submittedAt).toLocaleTimeString()}
+                              </small>
+                              {isLateSubmission && (
+                                <div style={{ color: "#d32f2f", fontSize: "11px", fontWeight: 500, marginTop: "4px" }}>
+                                  ⚠️ Late Submission
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <span
+                              className={`status-badge ${submission.status === "graded" ? "status-badge--graded" : "status-badge--pending"}`}
+                            >
+                              {submission.status === "graded" ? "Graded" : "Pending"}
+                            </span>
+                          </td>
+                          <td>
+                            {submission.status === "graded" ? (
+                              <strong>{submission.score}/{viewingSubmissions.maxScore}</strong>
+                            ) : (
+                              <span style={{ color: "var(--text-muted)" }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn btn--outline btn--sm"
+                              onClick={() => setGradingSubmission(submission)}
+                            >
+                              {submission.status === "graded" ? "Edit" : "Grade"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -355,7 +424,10 @@ const InstructorAssignments = () => {
             <div className="modal-header">
               <h3 id="grade-title">Grade Submission</h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "13px", margin: 0, marginTop: "4px" }}>
-                {gradingSubmission.studentName}
+                <strong>{gradingSubmission.studentName}</strong> • {gradingSubmission.studentEmail}
+              </p>
+              <p style={{ color: "var(--text-muted)", fontSize: "12px", margin: "4px 0 0 0" }}>
+                Submitted: {new Date(gradingSubmission.submittedAt).toLocaleString()}
               </p>
             </div>
 

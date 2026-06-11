@@ -1,16 +1,78 @@
 const Quiz = require("../models/Quiz");
+const Course = require("../models/Course");
 const User = require("../models/User");
+const Enrollment = require("../models/Enrollment");
 const { sendNotificationEmail } = require("../utils/email");
 
-// Get all quizzes for a course
+// Get all quizzes for a course (instructor view)
 const getQuizzes = async (req, res) => {
   try {
     const { courseId } = req.params;
+    const instructorId = req.user._id;
+
+    // Verify instructor owns the course
+    const course = await Course.findById(courseId);
+    if (!course || course.instructor.toString() !== instructorId.toString()) {
+      return res.status(403).json({ message: "Not authorized to view these quizzes" });
+    }
+
     const quizzes = await Quiz.find({ course: courseId })
       .populate("instructor", "fullName email")
       .sort({ createdAt: -1 });
 
     res.json({ quizzes });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get instructor's quizzes
+const getMyQuizzes = async (req, res) => {
+  try {
+    const instructorId = req.user._id;
+
+    const quizzes = await Quiz.find({ instructor: instructorId })
+      .populate("course", "title")
+      .populate("instructor", "fullName email")
+      .sort({ createdAt: -1 });
+
+    res.json({ quizzes });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get quizzes for student (only enrolled courses)
+const getStudentQuizzes = async (req, res) => {
+  try {
+    const studentId = req.user._id;
+
+    // Get all courses student is enrolled in
+    const enrollments = await Enrollment.find({
+      student: studentId,
+      status: { $in: ["enrolled", "active", "completed"] },
+    }).populate("course");
+
+    const courseIds = enrollments.map((e) => e.course._id);
+
+    // Get all quizzes for those courses
+    const quizzes = await Quiz.find({ course: { $in: courseIds } })
+      .populate("course", "title")
+      .populate("instructor", "fullName email")
+      .sort({ createdAt: -1 });
+
+    // Add submission info for each quiz
+    const quizzesWithSubmissions = quizzes.map((quiz) => {
+      const submission = quiz.submissions.find(
+        (sub) => sub.student.toString() === studentId.toString()
+      );
+      return {
+        ...quiz.toObject(),
+        submissions: submission ? [submission] : [],
+      };
+    });
+
+    res.json({ quizzes: quizzesWithSubmissions });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -45,6 +107,37 @@ const getStudentQuiz = async (req, res) => {
 
     if (!quiz) {
       return res.status(404).json({ message: "Quiz not found" });
+    }
+
+    // Check if student is enrolled in the course
+    const enrollment = await Enrollment.findOne({
+      student: studentId,
+      course: quiz.course,
+      status: { $in: ["enrolled", "active", "completed"] },
+    });
+
+    if (!enrollment) {
+      return res.status(403).json({ message: "You are not enrolled in this course" });
+    }
+
+    // Check if deadline has passed
+    if (quiz.dueDate && new Date() > new Date(quiz.dueDate)) {
+      const studentSubmission = quiz.submissions.find(
+        (sub) => sub.student.toString() === studentId.toString()
+      );
+      if (!studentSubmission) {
+        return res.json({
+          quiz: {
+            id: quiz._id,
+            title: quiz.title,
+            description: quiz.description,
+            dueDate: quiz.dueDate,
+            isLate: true,
+            message: `Quiz deadline has passed (${new Date(quiz.dueDate).toLocaleString()}). Late submissions are not allowed.`,
+            questions: [],
+          },
+        });
+      }
     }
 
     // Check if student already submitted
@@ -112,6 +205,12 @@ const createQuiz = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Title, courseId, and at least one question are required" });
+    }
+
+    // Verify instructor owns the course
+    const course = await Course.findById(courseId);
+    if (!course || course.instructor.toString() !== instructorId.toString()) {
+      return res.status(403).json({ message: "Not authorized to create quiz for this course" });
     }
 
     const quiz = await Quiz.create({
@@ -211,6 +310,24 @@ const submitQuiz = async (req, res) => {
       return res.status(404).json({ message: "Quiz not found" });
     }
 
+    // Check if deadline has passed
+    if (quiz.dueDate && new Date() > new Date(quiz.dueDate)) {
+      return res.status(400).json({
+        message: `Quiz deadline has passed (${new Date(quiz.dueDate).toLocaleString()}). Late submissions are not allowed.`,
+      });
+    }
+
+    // Check if student is enrolled in the course
+    const enrollment = await Enrollment.findOne({
+      student: studentId,
+      course: quiz.course,
+      status: { $in: ["enrolled", "active", "completed"] },
+    });
+
+    if (!enrollment) {
+      return res.status(403).json({ message: "You are not enrolled in this course" });
+    }
+
     // Check if student already submitted and maxAttempts is 1 (no retakes)
     const existingSubmission = quiz.submissions.find(
       (sub) => sub.student.toString() === studentId.toString()
@@ -268,7 +385,7 @@ const submitQuiz = async (req, res) => {
       await sendNotificationEmail(
         instructor.email,
         "Quiz Submission",
-        `${studentName} submitted the quiz "${quiz.title}". Score: ${score}%`
+        `${studentName} submitted the quiz "${quiz.title}" at ${new Date().toLocaleString()}. Score: ${score}%`
       );
     }
 
@@ -309,6 +426,14 @@ const getSubmissions = async (req, res) => {
       return res.status(404).json({ message: "Quiz not found" });
     }
 
+    // Only instructor or admin can view submissions
+    if (
+      quiz.instructor.toString() !== req.user._id.toString() &&
+      req.user.role !== "admin"
+    ) {
+      return res.status(403).json({ message: "Not authorized to view these submissions" });
+    }
+
     res.json({
       submissions: quiz.submissions.map((sub) => ({
         _id: sub._id,
@@ -326,7 +451,7 @@ const getSubmissions = async (req, res) => {
   }
 };
 
-// Get student's quiz result with correct answers
+// Get quiz result with correct answers
 const getQuizResult = async (req, res) => {
   try {
     const { quizId } = req.params;
@@ -397,6 +522,7 @@ const getMySubmissions = async (req, res) => {
         quizId: quiz._id,
         courseTitle: quiz.course?.title,
         title: quiz.title,
+        dueDate: quiz.dueDate,
         instructor: quiz.instructor,
         submission: quiz.submissions.find(
           (sub) => sub.student.toString() === studentId.toString()
@@ -412,6 +538,8 @@ const getMySubmissions = async (req, res) => {
 
 module.exports = {
   getQuizzes,
+  getMyQuizzes,
+  getStudentQuizzes,
   getQuizById,
   getStudentQuiz,
   createQuiz,

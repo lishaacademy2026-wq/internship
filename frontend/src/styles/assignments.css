@@ -1,0 +1,130 @@
+
+.stat-badge--late {
+  background: rgba(211, 47, 47, 0.1);
+  color: #d32f2f;
+}
+
+.assignments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 24px;
+  margin-top: 32px;
+}
+
+.assignment-card {
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.assignment-card:hover {
+  border-color: var(--green-600);
+  box-shadow: 0 8px 24px rgba(76, 175, 80, 0.08);
+}
+
+.assignment-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.assignment-card__header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.assignment-card__description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 18px 0;
+  line-height: 1.6;
+  flex-grow: 1;
+}
+
+.assignment-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+  margin-bottom: 16px;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.detail-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.detail-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  text-align: right;
+}
+
+.submission-feedback {
+  background: var(--bg-elevated);
+  border-left: 4px solid var(--green-600);
+  padding: 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.feedback-score {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.feedback-score strong {
+  font-size: 18px;
+  color: var(--green-700);
+}
+
+.feedback-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.assignment-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.text-success {
+  color: var(--green-700) !important;
+}
+
+.link-green {
+  color: var(--green-600);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.link-green:hover {
+  text-decoration: underline;
+}
